@@ -16,7 +16,7 @@ Gem::Specification.new do |gem|
   gem.version       = SimpleAnalytics::VERSION
 
   gem.add_dependency "json"
-  gem.add_dependency "google_client_login", "~> 0.3"
+  gem.add_dependency "google-api-client"
   gem.add_development_dependency "rspec"
   gem.add_development_dependency "fuubar"
   gem.add_development_dependency "webmock"

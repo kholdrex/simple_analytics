@@ -1,6 +1,6 @@
 require 'simple_analytics/version'
 require 'json'
-require 'google_client_login'
+require 'google/api_client'
 
 module SimpleAnalytics
   # Required query parameters are used to configure which data to return from Google Analytics.
@@ -16,22 +16,30 @@ module SimpleAnalytics
     # +body+ is the data in response body.
     attr_reader :rows, :body
 
-    def self.authenticate(username, password, options = {})
-      analytics = new(username, password, options)
+    def self.authenticate(username, key_path, options = {})
+      analytics = new(username, key_path, options)
       analytics.authenticate
       analytics
     end
 
-    def initialize(username, password, options = {})
+    def initialize(username, key_path, options = {})
       @username = username
-      @password = password
-      @options = options
+      @key_path = key_path
+      @options  = options
     end
 
     def authenticate
-      login_service = ::GoogleClientLogin::GoogleAuth.new(client_options)
-      login_service.authenticate(@username, @password, @options[:captcha_response])
-      @auth_token = login_service.auth
+      client = Google::APIClient.new
+      client.authorization = Signet::OAuth2::Client.new(
+          :token_credential_uri => 'https://accounts.google.com/o/oauth2/token',
+          :audience => 'https://accounts.google.com/o/oauth2/token',
+          :scope => 'https://www.googleapis.com/auth/analytics.readonly',
+          :issuer => @username,
+          :signing_key => key)
+
+      ## Request a token for our service account
+      client.authorization.fetch_access_token!
+      @auth_token = client.authorization.access_token
     end
 
     def fetch(properties)
@@ -41,23 +49,17 @@ module SimpleAnalytics
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = true
       http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-
-      headers = { 'Authorization' => "GoogleLogin auth=#{@auth_token}", 'GData-Version' => '3' }
-      response = http.get("#{uri.path}?#{query_string(properties)}", headers)
+      headers = { 'GData-Version' => '3' }
+      response = http.get("#{uri.path}?#{query_string(properties)}&access_token=#{@auth_token}", headers)
       raise NotSuccessfulResponseError.new, response.body if response.code_type != Net::HTTPOK
-
       @body = JSON.parse(response.body)
       @rows = @body['rows']
     end
 
     private
 
-    def client_options
-      {
-        :service     => 'analytics',
-        :accountType => (@options[:accountType] || 'GOOGLE'),
-        :source      => (@options[:source] || 'djo-simple_analytics-001')
-      }
+    def key
+      Google::APIClient::KeyUtils.load_from_pkcs12(@key_path, 'notasecret')
     end
 
     def check_properties(properties)
